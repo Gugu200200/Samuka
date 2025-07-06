@@ -201,12 +201,12 @@ int main(void)
 		}
 
 		//Envio das informações pelo putty
-		char putty[30];
+		char putty[15];
 		memset(putty,0,sizeof(putty));
 		if(retorno_controlador == 1){
-			sprintf(putty, "A%.2fI%.0fF%.0fCS\n\r",media,temp_minmax[0],temp_minmax[1]);
+			sprintf(putty, "A%.2fI%.0fF%.0fCS",media,temp_minmax[0],temp_minmax[1]);
 		} else{
-			sprintf(putty, "A%.2fI%.0fF%.0fCR\n\r",media,temp_minmax[0],temp_minmax[1]);
+			sprintf(putty, "A%.2fI%.0fF%.0fCR",media,temp_minmax[0],temp_minmax[1]);
 		}
 		HAL_UART_Transmit_IT(&huart2, putty, sizeof(putty));
 
