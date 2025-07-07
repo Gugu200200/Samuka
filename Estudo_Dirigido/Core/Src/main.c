@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "lcd.h"
+#include "stdlib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -61,16 +62,23 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN 0 */
 uint8_t rx_char_in;
 float temp_minmax[2] = {30,36};
+volatile char configs [4] = "3036";
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	// reinicia a uart
+	volatile static uint8_t config_cont = 0;
 	HAL_UART_Receive_IT(&huart2, &rx_char_in, 1);
 	// Echo
-	if (rx_char_in == '\r'){
-		HAL_UART_Transmit_IT(&huart2, "\n\r", 2);
+	if (rx_char_in == 'M'){
+		config_cont =1;
 	}
 	else{
 		//HAL_UART_Transmit_IT(&huart2, &rx_char_in, 1);
+	}
+	if (config_cont>=1){
+		configs[config_cont-1] = rx_char_in;
+		config_cont = config_cont%4;
+		config_cont = config_cont+1;
 	}
 // Led
 	HAL_GPIO_TogglePin(led1_GPIO_Port, led1_Pin);
@@ -145,11 +153,11 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
   /* Inicialização da média movel */
   const uint32_t n_medias = 100; //Quantidade de valores
   float mov[n_medias];
   memset(mov,0,sizeof(float)*n_medias);
+
   float media = 0;
   uint32_t contador = 0;
 
@@ -170,6 +178,7 @@ int main(void)
 	contador++;
 
 	// Comandos possíveis para lâmpada
+
 	if(rx_char_in == 'C'){
 		retorno_controlador = controlador(media, temp_minmax);
 	} else if(rx_char_in == 'L'){
@@ -181,6 +190,10 @@ int main(void)
 	}
 	//Codigo executado a cada 500ms
 	if (tempo >= 500){
+
+		for(uint8_t i =0;i<2;i++){
+			temp_minmax[i] = ( atof(configs[2*i]*10) + atof(configs[2*i+1]));
+		}
 		//Calculo da media do vetor movel
 		media = 0;
 		for(uint32_t i =0;i<n_medias;i++){
