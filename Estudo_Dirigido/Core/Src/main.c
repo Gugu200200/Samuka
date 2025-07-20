@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "lcd.h"
+#include "stdlib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,27 +61,39 @@ static void MX_ADC1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 uint8_t rx_char_in;
+float temp_minmax[2] = {30,36};
+volatile char configs [4] = "3036";
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	// reinicia a uart
+	volatile static uint8_t config_cont = 0;
 	HAL_UART_Receive_IT(&huart2, &rx_char_in, 1);
 	// Echo
-	if (rx_char_in == '\r'){
-		HAL_UART_Transmit_IT(&huart2, "\n\r", 2);
+	if (rx_char_in == 'M'){
+		config_cont =1;
 	}
 	else{
 		//HAL_UART_Transmit_IT(&huart2, &rx_char_in, 1);
+	}
+	if (config_cont>=1){
+		configs[config_cont-1] = rx_char_in;
+		config_cont = config_cont%4;
+		config_cont = config_cont+1;
 	}
 // Led
 	HAL_GPIO_TogglePin(led1_GPIO_Port, led1_Pin);
 }
 
-void controlador (float temp){
-	if (temp<30){
+uint8_t controlador (float temp,float thresholds[2]){
+	static uint8_t control_status = 0;
+	if (temp<thresholds[0]){
 		HAL_GPIO_WritePin(Lampada_GPIO_Port, Lampada_Pin, 1);
-	} else if(temp>36){
+		control_status=1;
+	} else if(temp>thresholds[1]){
 		HAL_GPIO_WritePin(Lampada_GPIO_Port, Lampada_Pin, 0);
+		control_status=0;
 	}
+	return control_status;
 }
 /* USER CODE END 0 */
 
@@ -116,53 +129,79 @@ int main(void)
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  HAL_UART_Receive_IT(&huart2, &rx_char_in, 1);
+  HAL_UART_Receive_IT(&huart2, &rx_char_in, 1); //Inicilaização da interrupção do UART
+
+  /* Variáveis de contagem de tempo */
   uint32_t inicio = 0;
   uint32_t fim = 0;
   uint32_t tempo = 0;
+
+  /* Inicialização do display LCD */
   Lcd_PortType ports[] = {GPIOB, GPIOB, GPIOB, GPIOB};
   Lcd_PinType pins[] = {GPIO_PIN_12, GPIO_PIN_13, GPIO_PIN_14, GPIO_PIN_15};
   Lcd_HandleTypeDef lcd;
   lcd = Lcd_create(ports, pins, GPIOA, GPIO_PIN_4, GPIOA, GPIO_PIN_6, LCD_4_BIT_MODE);
+
+  /* Inicialização do ADC e de suas variáveis de conversão */
   HAL_ADCEx_Calibration_Start(&hadc1);
   float Vref = 3.3;
   uint16_t AD_ref = 4096 - 1;
   float temperatura;
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  const uint32_t n_medias = 100;
+  /* Inicialização da média movel */
+  const uint32_t n_medias = 100; //Quantidade de valores
   float mov[n_medias];
   memset(mov,0,sizeof(float)*n_medias);
+
   float media = 0;
   uint32_t contador = 0;
+
+  uint8_t retorno_controlador = 0; //Retorno do status do controlador
   while (1)
   {
 	inicio = HAL_GetTick();
+
+	//Leitura ADC
 	HAL_ADC_Start(&hadc1);
 	HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 	uint16_t val_adc = HAL_ADC_GetValue(&hadc1);
-
 	temperatura = val_adc*Vref/AD_ref;
 	temperatura = 100*temperatura;
 
+	//Media movel
 	mov[contador % n_medias] = temperatura;
 	contador++;
+
+	// Comandos possíveis para lâmpada
+
 	if(rx_char_in == 'C'){
-		controlador(media);
+		retorno_controlador = controlador(media, temp_minmax);
 	} else if(rx_char_in == 'L'){
 		HAL_GPIO_WritePin(Lampada_GPIO_Port, Lampada_Pin, 1);
+		retorno_controlador = 1;
 	} else if(rx_char_in == 'D'){
 		HAL_GPIO_WritePin(Lampada_GPIO_Port, Lampada_Pin, 0);
+		retorno_controlador = 0;
 	}
-
+	//Codigo executado a cada 500ms
 	if (tempo >= 500){
+
+		for(uint8_t i =0;i<2;i++){
+			temp_minmax[i] = ( atof(configs[2*i]*10) + atof(configs[2*i+1]));
+		}
+		//Calculo da media do vetor movel
 		media = 0;
 		for(uint32_t i =0;i<n_medias;i++){
 			media += mov[i];
 		}
 		media = media/n_medias;
+
+
 		if(rx_char_in == 'C'){
 			Lcd_cursor(&lcd, 0, 0);
 			Lcd_string(&lcd, "Controlando temp");
@@ -174,10 +213,16 @@ int main(void)
 			Lcd_string(&lcd, "Lampada OFF     ");
 		}
 
-		char putty[30];
+		//Envio das informações pelo putty
+		char putty[15];
 		memset(putty,0,sizeof(putty));
-		sprintf(putty, "%.2f\n\r",media);
+		if(retorno_controlador == 1){
+			sprintf(putty, "A%.2fI%.0fF%.0fCS",media,temp_minmax[0],temp_minmax[1]);
+		} else{
+			sprintf(putty, "A%.2fI%.0fF%.0fCR",media,temp_minmax[0],temp_minmax[1]);
+		}
 		HAL_UART_Transmit_IT(&huart2, putty, sizeof(putty));
+
 
 		char str[20];
 		sprintf(str, "Temp: %.2f C     ",media);
